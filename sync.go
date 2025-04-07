@@ -28,6 +28,7 @@ type Config struct {
 	Files        map[string]FileConfig `json:"files"`
 	Token        string                `json:"token"`
 	PollInterval string                `json:"poll_interval"`
+	EnvFile      string                `json:"env_file,omitempty"` // Optional path to env file
 }
 
 var remoteSHAPattern = regexp.MustCompile(`^# REMOTE_SHA:\s*([a-f0-9]+)\s*$`)
@@ -182,17 +183,22 @@ func syncFile(ctx context.Context, client *github.Client, config *Config, fileCo
 	log.Printf("File %s updated with remote SHA %s", fileConfig.LocalPath, remoteSHA)
 
 	// Trigger template substitution: update templated values in the file with values from the env file.
-	if err := applyEnvTemplate(fileConfig.LocalPath); err != nil {
+	if err := applyEnvTemplate(fileConfig.LocalPath, config); err != nil {
 		return "", fmt.Errorf("failed to apply env template: %v", err)
 	}
 
 	return remoteSHA, nil
 }
 
-// applyEnvTemplate reads the env file (default: ./.env, overridden by ENV_FILE) and replaces
-// occurrences of {{KEY}} in the given file with their corresponding values.
-func applyEnvTemplate(filePath string) error {
-	envFile := getEnvOrDefault("ENV_FILE", "./env")
+// applyEnvTemplate reads the env file and replaces occurrences of {{KEY}} in the given file with
+// their corresponding values. It supports fallback values in the format {{KEY:-DEFAULT}}.
+func applyEnvTemplate(filePath string, config *Config) error {
+	// Determine env file path from config, environment variable, or default
+	envFile := config.EnvFile
+	if envFile == "" {
+		envFile = getEnvOrDefault("ENV_FILE", "./env")
+	}
+
 	// If the env file doesn't exist, just skip replacement.
 	if _, err := os.Stat(envFile); os.IsNotExist(err) {
 		log.Printf("Environment file %s not found, skipping template substitution", envFile)
@@ -218,21 +224,51 @@ func applyEnvTemplate(filePath string) error {
 		}
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
+
+		// Remove quotes if present (e.g., "value" -> value)
+		value = strings.Trim(value, `"'`)
+
+		// Also check if the value is in the environment variables
+		if envValue := os.Getenv(key); envValue != "" {
+			value = envValue
+		}
+
 		envMap[key] = value
 	}
 
-	// Read the content of the updated file.
+	// Read the content of the file to be templated
 	fileData, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read file for template substitution: %v", err)
 	}
 	contentStr := string(fileData)
 
-	// Replace tokens of the form {{KEY}} with the corresponding value.
-	for key, value := range envMap {
-		token := fmt.Sprintf("{{%s}}", key)
-		contentStr = strings.ReplaceAll(contentStr, token, value)
-	}
+	// Regular expression to match {{KEY}} or {{KEY:-DEFAULT}}
+	re := regexp.MustCompile(`{{([^{}:]+)(?::-([^{}]*))?}}`)
+
+	// Find all matches and replace them
+	contentStr = re.ReplaceAllStringFunc(contentStr, func(match string) string {
+		submatch := re.FindStringSubmatch(match)
+		key := submatch[1]
+		defaultValue := ""
+		if len(submatch) > 2 {
+			defaultValue = submatch[2]
+		}
+
+		// Check if the key exists in our environment map
+		value, exists := envMap[key]
+		if !exists {
+			// If not in our map, check system environment variables
+			value = os.Getenv(key)
+		}
+
+		// If still no value, use the default
+		if value == "" {
+			value = defaultValue
+		}
+
+		return value
+	})
 
 	// Write the updated content back to the file.
 	if err := os.WriteFile(filePath, []byte(contentStr), 0644); err != nil {
