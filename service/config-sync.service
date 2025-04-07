@@ -1,0 +1,15 @@
+[Unit]
+Description=File Sync Service
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=GITHUB_TOKEN=
+Environment=CONFIG_PATH=
+ExecStart=/usr/local/bin/github-file-sync
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target
