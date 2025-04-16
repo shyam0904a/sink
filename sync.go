@@ -16,6 +16,9 @@ import (
 	"golang.org/x/oauth2"
 )
 
+// version will be set during the build process via -ldflags
+var version = "dev"
+
 type FileConfig struct {
 	RepoPath  string `json:"repo_path"`
 	LocalPath string `json:"local_path"`
@@ -34,6 +37,9 @@ type Config struct {
 var remoteSHAPattern = regexp.MustCompile(`^# REMOTE_SHA:\s*([a-f0-9]+)\s*$`)
 
 func main() {
+	// Log version information on startup
+	log.Printf("Config Sync v%s starting up", version)
+
 	// Load configuration from file
 	configPath := getEnvOrDefault("CONFIG_PATH", "./sync-config/config.json")
 	config, err := loadConfig(configPath)

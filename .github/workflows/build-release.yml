@@ -24,33 +24,50 @@ jobs:
         id: get_version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       
-      - name: Build binaries for multiple platforms
+      - name: Build statically linked binaries for multiple platforms
         env:
           VERSION: ${{ steps.get_version.outputs.VERSION }}
+          CGO_ENABLED: 0  # Disable CGO for fully static builds
         run: |
           # Create output directory
           mkdir -p dist
           
+          # Common ldflags for static builds with version information
+          LDFLAGS="-s -w -extldflags '-static' -X main.version=$VERSION"
+          
           # Build for Linux (amd64)
-          GOOS=linux GOARCH=amd64 go build -ldflags="-X main.version=$VERSION" -o dist/sink-linux-amd64 sync.go
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-linux-amd64 sync.go
           
           # Build for Linux (arm64)
-          GOOS=linux GOARCH=arm64 go build -ldflags="-X main.version=$VERSION" -o dist/sink-linux-arm64 sync.go
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-linux-arm64 sync.go
           
           # Build for Linux (arm)
-          GOOS=linux GOARCH=arm go build -ldflags="-X main.version=$VERSION" -o dist/sink-linux-arm sync.go
+          GOOS=linux GOARCH=arm CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-linux-arm sync.go
           
           # Build for MacOS (amd64)
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-X main.version=$VERSION" -o dist/sink-darwin-amd64 sync.go
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-darwin-amd64 sync.go
           
           # Build for MacOS (arm64)
-          GOOS=darwin GOARCH=arm64 go build -ldflags="-X main.version=$VERSION" -o dist/sink-darwin-arm64 sync.go
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-darwin-arm64 sync.go
           
           # Build for Windows (amd64)
-          GOOS=windows GOARCH=amd64 go build -ldflags="-X main.version=$VERSION" -o dist/sink-windows-amd64.exe sync.go
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-windows-amd64.exe sync.go
+          
+          # Compress binaries
+          cd dist
+          for file in sink-*; do
+            if [[ -f "$file" && ! "$file" == *.zip && ! "$file" == *.tar.gz ]]; then
+              if [[ "$file" == *.exe ]]; then
+                zip "${file%.exe}.zip" "$file"
+                rm "$file"
+              else
+                tar -czf "$file.tar.gz" "$file"
+                rm "$file"
+              fi
+            fi
+          done
           
           # Create checksums
-          cd dist
           sha256sum * > checksums.txt
       
       - name: Create Release
@@ -62,17 +79,17 @@ jobs:
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            dist/sink-linux-amd64
-            dist/sink-linux-arm64
-            dist/sink-linux-arm
-            dist/sink-darwin-amd64
-            dist/sink-darwin-arm64
-            dist/sink-windows-amd64.exe
+            dist/sink-linux-amd64.tar.gz
+            dist/sink-linux-arm64.tar.gz
+            dist/sink-linux-arm.tar.gz
+            dist/sink-darwin-amd64.tar.gz
+            dist/sink-darwin-arm64.tar.gz
+            dist/sink-windows-amd64.zip
             dist/checksums.txt
           body: |
             # Config Sync ${{ steps.get_version.outputs.VERSION }}
             
-            Binaries for configuration synchronization tool.
+            Statically linked binaries for configuration synchronization tool. These binaries are self-contained and can run on any system without additional dependencies.
             
             ## Platforms
             - Linux (amd64, arm64, arm)
@@ -81,10 +98,11 @@ jobs:
             
             ## Installation
             
-            1. Download the appropriate binary for your platform
-            2. Make it executable (`chmod +x sink-*` on Unix-based systems)
-            3. Place it in a directory in your PATH
-            4. Configure your sync settings in `/etc/falco/sync-config.json`
+            1. Download the appropriate archive for your platform
+            2. Extract the binary (`tar -xzf sink-*.tar.gz` for Linux/macOS, unzip for Windows)
+            3. Make it executable (`chmod +x sink-*` on Unix-based systems)
+            4. Place it in a directory in your PATH
+            5. Configure your sync settings in `/etc/falco/sync-config.json` or specify with CONFIG_PATH environment variable
             
             ## Verify checksums
             
