@@ -1,0 +1,111 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+          check-latest: true
+      
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: Build statically linked binaries for multiple platforms
+        env:
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+          CGO_ENABLED: 0  # Disable CGO for fully static builds
+        run: |
+          # Create output directory
+          mkdir -p dist
+          
+          # Common ldflags for static builds with version information
+          LDFLAGS="-s -w -extldflags '-static' -X main.version=$VERSION"
+          
+          # Build for Linux (amd64)
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-linux-amd64 sync.go
+          
+          # Build for Linux (arm64)
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-linux-arm64 sync.go
+          
+          # Build for Linux (arm)
+          GOOS=linux GOARCH=arm CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-linux-arm sync.go
+          
+          # Build for MacOS (amd64)
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-darwin-amd64 sync.go
+          
+          # Build for MacOS (arm64)
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-darwin-arm64 sync.go
+          
+          # Build for Windows (amd64)
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="$LDFLAGS" -o dist/sink-windows-amd64.exe sync.go
+          
+          # Compress binaries
+          cd dist
+          for file in sink-*; do
+            if [[ -f "$file" && ! "$file" == *.zip && ! "$file" == *.tar.gz ]]; then
+              if [[ "$file" == *.exe ]]; then
+                zip "${file%.exe}.zip" "$file"
+                rm "$file"
+              else
+                tar -czf "$file.tar.gz" "$file"
+                rm "$file"
+              fi
+            fi
+          done
+          
+          # Create checksums
+          sha256sum * > checksums.txt
+      
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ steps.get_version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: |
+            dist/sink-linux-amd64.tar.gz
+            dist/sink-linux-arm64.tar.gz
+            dist/sink-linux-arm.tar.gz
+            dist/sink-darwin-amd64.tar.gz
+            dist/sink-darwin-arm64.tar.gz
+            dist/sink-windows-amd64.zip
+            dist/checksums.txt
+          body: |
+            # Config Sync ${{ steps.get_version.outputs.VERSION }}
+            
+            Statically linked binaries for configuration synchronization tool. These binaries are self-contained and can run on any system without additional dependencies.
+            
+            ## Platforms
+            - Linux (amd64, arm64, arm)
+            - macOS (amd64, arm64)
+            - Windows (amd64)
+            
+            ## Installation
+            
+            1. Download the appropriate archive for your platform
+            2. Extract the binary (`tar -xzf sink-*.tar.gz` for Linux/macOS, unzip for Windows)
+            3. Make it executable (`chmod +x sink-*` on Unix-based systems)
+            4. Place it in a directory in your PATH
+            5. Configure your sync settings in `/etc/sink/sync-config.json` or specify with CONFIG_PATH environment variable
+            
+            ## Verify checksums
+            
+            ```
+            sha256sum -c checksums.txt
+            ```

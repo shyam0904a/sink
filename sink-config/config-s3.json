@@ -1,0 +1,23 @@
+{
+    "source": "s3",
+    "poll_interval": "6h",
+    "s3_configuration": {
+        "files": {
+            "config-file": {
+                "bucket": "old",
+                "key": "tmp.yaml",
+                "local_path": "/tmp/tmp.yaml",
+                "region": "ap-south-1"
+            },
+            "config-file2": {
+                "bucket": "new",
+                "key": "tmp1.yaml",
+                "local_path": "/tmp/tmp.yaml",
+                "region": "ap-south-1"
+            }
+        },
+        "anonymous": true,
+        "poll_interval": "6h",
+        "env_file": "/etc/myapp/env"
+    }
+}

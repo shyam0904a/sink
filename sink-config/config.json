@@ -1,0 +1,13 @@
+{
+    "owner": "",
+    "repo": "",
+    "token": "",
+    "poll_interval": "5s",
+    "files": {
+        "tmp": {
+            "repo_path": "tmp.yml",
+            "local_path": "/home/ubuntu/tmp.yml",
+            "branch": "main"
+        }
+    }
+}

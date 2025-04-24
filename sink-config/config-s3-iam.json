@@ -1,0 +1,23 @@
+{
+    "source": "s3",
+    "poll_interval": "1m",
+    "s3_configuration": {
+        "files": {
+            "config-file": {
+                "bucket": "my-config-bucket",
+                "key": "configs/app-config.yaml",
+                "local_path": "/etc/myapp/config.yaml",
+                "region": "us-west-2"
+            },
+            "rules-file": {
+                "bucket": "my-config-bucket",
+                "key": "rules/rules.json",
+                "local_path": "/etc/myapp/rules.json",
+                "region": "us-west-2"
+            }
+        },
+        "use_iam_role": true,
+        "poll_interval": "2m",
+        "env_file": "/etc/myapp/env"
+    }
+}
